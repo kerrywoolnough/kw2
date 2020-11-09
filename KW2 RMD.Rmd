@@ -6,7 +6,7 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 ####Install & Load Packages----
 
@@ -21,6 +21,9 @@ library(Biostrings)
 library(tidyverse)
 #load randomforest
 library(randomForest)
+## May not need, try without to see
+#install.packages('ggridges')
+#library(ggridges)
 ```
 
 
@@ -35,8 +38,13 @@ entrez_db_searchable("nuccore")
 #Search NCBI's Nucleotide database for 16S rRNA Refseq records for Actinobacteria. This was then repeated for Firmicutes. Limited to 4000 hits for each taxa to prevent either taxa from being overrepresented in the model. Web history objects were used to support the high number of hits in entrez_fetch(). 
 actino_search<-entrez_search(db = "nuccore", term = "(Actinobacteria[ORGN] AND (33175[BioProject] OR 33317[BioProject])", retmax = 4000,  use_history=TRUE)
 
+#Check how many records are available for this search set
+actino_max <- actino_search$count
+
 #Search NCBI's Nucleotide database for 16S rRNA Refseq records for Firmicutes.  
 firmi_search<-entrez_search(db = "nuccore", term = "(Firmicutes[ORGN] AND (33175[BioProject] OR 33317[BioProject])", retmax = 4000,  use_history=TRUE)
+
+firmi_max <- firmi_search$count
 ```
 
 
@@ -46,9 +54,14 @@ firmi_search<-entrez_search(db = "nuccore", term = "(Firmicutes[ORGN] AND (33175
 actino_fetch <- entrez_fetch(db = "nuccore", web_history=actino_search$web_history, rettype = "fasta", retmax=4000)
 firmi_fetch <- entrez_fetch(db = "nuccore", web_history=firmi_search$web_history, rettype = "fasta", retmax=4000)
 
+#Use these lines to access max records for each data set
+#actino_fetch <- entrez_fetch(db = "nuccore", web_history=actino_search$web_history, rettype = "fasta", retmax=actino_max)
+#firmi_fetch <- entrez_fetch(db = "nuccore", web_history=firmi_search$web_history, rettype = "fasta", retmax=firmi_max)
+
+
 #Write sequence data to directory. FASTA files subsequently viewed with text editor. The following lines have been commented to prevent overwriting.
-#write(actino_fetch, "actino_fetch.fasta", sep = "\n")
-#write(firmi_fetch, "firmi_fetch.fasta", sep = "\n")
+write(actino_fetch, "actino_fetch.fasta", sep = "\n")
+write(firmi_fetch, "firmi_fetch.fasta", sep = "\n")
 ```
 
 
@@ -84,9 +97,6 @@ class(df_firmi_actino)
 sum(is.na(df_firmi_actino$Sequence_16S))
 sum(is.na(df_firmi_actino$Title_16S))
 
-#Find maximum and minimum sequence lengths: 459-1774
-summary(nchar(df_firmi_actino$Sequence_16S))
-
 ##Investigate Ns in the sequences
 #Are there many Ns present in the sequences of the dataset as a whole? 10,436
 sum(str_count(string = df_firmi_actino$Sequence_16S, pattern = "N"))
@@ -100,6 +110,22 @@ unique(df_firmi_actino$Phylum)
 
 #Check the range of the categorical features.
 summary(df_firmi_actino)
+
+#Investigate range of sequence length
+summary(nchar(df_firmi_actino$Sequence_16S))
+ggplot(df_firmi_actino,aes(x=nchar(Sequence_16S), y = Phylum, xmin = 0,
+              xmax = max(nchar(Sequence_16S)), colour = Phylum)) +
+  geom_pointrange(show.legend = F) +
+  xlab("Sequence Length")
+#1000 appears to be a good cut off for minimum of sequence, no outliers to the right so wont specify a maximum 
+counts <- df_firmi_actino %>%
+            group_by(Phylum) %>%
+            count(nchar(Sequence_16S) >=1000)
+#Checking to make see how many sequences will be removed by this decision
+show(counts)
+df_firmi_actino <- df_firmi_actino %>%
+                      filter(nchar(Sequence_16S) >= 1000)
+
 ```
 
 
@@ -160,7 +186,7 @@ dfTraining %>%
 ###Build an RF Classifier
 ```{r RF Classifier}
 #Build a classifier to classify phylum by 4-mer frequency and assess the importance of predictors
-phylum_classifier <- randomForest(x = dfTraining[, 5:260], y = as.factor(dfTraining$Phylum), ntree = 8000, importance = TRUE)
+phylum_classifier <- randomForest(x = dfTraining[, 5:260], y = as.factor(dfTraining$Phylum), ntree = 200, importance = TRUE)
 
 #Explanations for the most relevant model choices:
 #n-tree set to be twice the size of the number of data points in the training set (4000) to enable so data points to make it into the model more than once; a higher ntree is not initially selected due to the greater computational power required, but it is understood that this can be revisited if model performance need to be improved.
@@ -246,21 +272,21 @@ ggplot(df_importance_50, aes(y = reorder(feature, MeanDecreaseGini),
 
 
 ###Create RF Model based only on the top 4 most important features (as defined MeanDecreaseGini)
-phylum_classifier_top_features <- randomForest(x = dfTraining[, c("GGCC","ACCA","TTAG","TTTA")], y = as.factor(dfTraining$Phylum), ntree = 8000, importance = TRUE)
+phylum_classifier_top_features <- randomForest(x = dfTraining[, c("GGCC","ACCA","TTAG","TTTA")], y = as.factor(dfTraining$Phylum), ntree = 200, importance = TRUE)
 
 #Overview of Classifier (Top 4 features): OOB estimate of error rate is 1.38%
 phylum_classifier_top_features
 
 
 ###Create RF model based only on the most important feature (as defined by MeanDecreaseGini): GGCC
-phylum_classifier_GGCC<- randomForest(x = dfTraining[, "GGCC"], y = as.factor(dfTraining$Phylum), ntree = 8000, importance = TRUE)
+phylum_classifier_GGCC<- randomForest(x = dfTraining[, "GGCC"], y = as.factor(dfTraining$Phylum), ntree = 200, importance = TRUE)
 
 #Overview of Classifier(single feature: GGCC): OOB estimate of error rate is 5.95%
 phylum_classifier_GGCC
 ```
 ```{r Model}
 ###Create RF model based only on the least important feature (as defined by MeanDecreaseGini): CTAC
-phylum_classifier_CTAC<- randomForest(x = dfTraining[, "CTAC"], y = as.factor(dfTraining$Phylum), ntree = 8000, importance = TRUE)
+phylum_classifier_CTAC<- randomForest(x = dfTraining[, "CTAC"], y = as.factor(dfTraining$Phylum), ntree = 200, importance = TRUE)
 
 #Overview of Classifier(single feature: CTAC): OOB estimate of error rate is 18.92%
 phylum_classifier_CTAC
@@ -294,7 +320,7 @@ dfTraining_k3 <- df_firmi_actino_k3%>%
   sample_n(2000)
 
 #Build RF Classifier for 3-mers
-phylum_classifier_k3 <- randomForest(x = dfTraining_k3[, 5:68], y = as.factor(dfTraining_k3$Phylum), ntree = 4000, importance = TRUE)
+phylum_classifier_k3 <- randomForest(x = dfTraining_k3[, 5:68], y = as.factor(dfTraining_k3$Phylum), ntree = 200, importance = TRUE)
 
 #See overview of classifier for training set: 0.25% OOB error estimate
 phylum_classifier_k3
@@ -342,7 +368,7 @@ dfTraining_k2 <- df_firmi_actino_k2%>%
   sample_n(2000) #why?
 
 #Build RF Classifier for 2-mers
-phylum_classifier_k2 <- randomForest(x = dfTraining_k2[, 5:20], y = as.factor(dfTraining_k2$Phylum), ntree = 4000, importance = TRUE)
+phylum_classifier_k2 <- randomForest(x = dfTraining_k2[, 5:20], y = as.factor(dfTraining_k2$Phylum), ntree = 200, importance = TRUE)
 
 #See overview of classifier for training set: 0.9% OOB error estimate
 phylum_classifier_k2
