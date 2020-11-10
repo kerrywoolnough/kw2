@@ -64,6 +64,7 @@ firmi_max <- firmi_search$count
 ```{r Fetch}
 #Fetch Sequence data in FASTA format for respective taxa. Retmax specified since web-history object is being used. 
 actino_fetch <- entrez_fetch(db = "nuccore", web_history=actino_search$web_history, rettype = "fasta", retmax=4000)
+show("take a break" )
 firmi_fetch <- entrez_fetch(db = "nuccore", web_history=firmi_search$web_history, rettype = "fasta", retmax=4000)
 
 #Use these lines to access max records for each data set
@@ -188,10 +189,14 @@ dfTraining_k4 %>%
 ###Build an RF Classifier
 ```{r RF Classifier}
 
-### Going to require a test for ntrees, for now leaving set to 600 as an approximation 
 
 #Build a classifier to classify phylum by 4-mer frequency and assess the importance of predictors
+
 phylum_classifier_k4 <- randomForest(x = dfTraining_k4[, 5:260], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
+
+ggplot(as.data.frame(phylum_classifier_k4$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
 #Explanations for the most relevant model choices:
 #n-tree set to be twice the size of the number of data points in the training set (4000) to enable so data points to make it into the model more than once; a higher ntree is not initially selected due to the greater computational power required, but it is understood that this can be revisited if model performance need to be improved.
@@ -230,15 +235,18 @@ print(confusion_matrix_k4)
 
 ###Explore the Important Features in Random Forest Classifier
 ```{r Features}
+
 #Explore the classifier's importance, and assign to variable for later viewing
-#This variable may be unused
-importance<-phylum_classifier_k4$importance
+
+importance_k4<-phylum_classifier_k4$importance
 
 #Plot the importance of each feature
 varImpPlot(x=phylum_classifier_k4, sort = T, main="Feature Importance of Random Forest Phylum Classifier",col="black",bg="purple", cex = 0.5)
 
+
 #Create a dataframe from importance() output
-df_importance_k4 <- importance(phylum_classifier_k4) %>% 
+#Something got masked when we loaded libraries at the beginning so need to specify use of randomForest's importance function
+df_importance_k4 <- randomForest::importance(phylum_classifier_k4) %>% 
   data.frame() %>% 
   mutate(feature = row.names(.))
 
@@ -274,22 +282,35 @@ ggplot(df_importance_k4_50, aes(y = reorder(feature, MeanDecreaseGini),
 
 
 ###Create RF Model based only on the top 4 most important features (as defined MeanDecreaseGini)
-#Again pick ntree not arbitrarily 
 phylum_classifier_top_features_k4 <- randomForest(x = dfTraining_k4[, c("GGCC","ACCA","TTAG","TTTA")], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
+#Test that enough trees were made
+ggplot(as.data.frame(phylum_classifier_top_features_k4$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
 #Overview of Classifier (Top 4 features): OOB estimate of error rate is 1.38%
 phylum_classifier_top_features_k4
 
 
 ###Create RF model based only on the most important feature (as defined by MeanDecreaseGini): GGCC
-phylum_classifier_GGCC<- randomForest(x = dfTraining_k4[, "GGCC"], y = as.factor(dfTraining$Phylum), ntree = 600, importance = TRUE)
+phylum_classifier_GGCC<- randomForest(x = dfTraining_k4[, "GGCC"], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
+
+#Test that enough trees were made
+ggplot(as.data.frame(phylum_classifier_GGCC$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
 #Overview of Classifier(single feature: GGCC): OOB estimate of error rate is 5.95%
 phylum_classifier_GGCC
 ```
 ```{r Model}
 ###Create RF model based only on the least important feature (as defined by MeanDecreaseGini): CTAC
-phylum_classifier_CTAC<- randomForest(x = dfTraining[, "CTAC"], y = as.factor(dfTraining$Phylum), ntree = 600, importance = TRUE)
+phylum_classifier_CTAC<- randomForest(x = dfTraining_k4[, "CTAC"], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
+
+#Test that enough trees were made
+ggplot(as.data.frame(phylum_classifier_CTAC$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
 #Overview of Classifier(single feature: CTAC): OOB estimate of error rate is 18.92%
 phylum_classifier_CTAC
@@ -320,6 +341,11 @@ dfTraining_k3 <- df_firmi_actino_k3%>%
 #Build RF Classifier for 3-mers
 #Again choose ntree properly
 phylum_classifier_k3 <- randomForest(x = dfTraining_k3[, 5:68], y = as.factor(dfTraining_k3$Phylum), ntree = 600, importance = TRUE)
+
+#Test that enough trees were made
+ggplot(as.data.frame(phylum_classifier_k3 $err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
 #See overview of classifier for training set: 0.25% OOB error estimate
 phylum_classifier_k3
@@ -364,6 +390,11 @@ dfTraining_k2 <- df_firmi_actino_k2%>%
 #Build RF Classifier for 2-mers
 #Work out ntree properly
 phylum_classifier_k2 <- randomForest(x = dfTraining_k2[, 5:20], y = as.factor(dfTraining_k2$Phylum), ntree = 600, importance = TRUE)
+
+#Test that enough trees were made
+ggplot(as.data.frame(phylum_classifier_k2 $err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
 #See overview of classifier for training set: 0.9% OOB error estimate
 phylum_classifier_k2
@@ -431,14 +462,10 @@ rpart_k4_confusion_matrix<-confusionMatrix(rpart_k4_prediction,df_validation_fir
 
 #Print the confusion; shows accuracy of 97.55%
 print(rpart_k4_confusion_matrix)
-```
-#Install and load packages to plot the tree
-#install.packages("rattle")
-library("rattle")
 
 #Plot the tree using rattle package
 fancyRpartPlot(model=rpart_tree_k4, main="Decision Tree for Taxonomic Classification of \n Phylum (Actinobacteria or Firmicutes) Using 4-mer Features ",caption=" ",yshift=-13,palettes=c("Greys", "Oranges"))
-
+```
 
 
 ####KNN Classifier----
@@ -451,7 +478,7 @@ summary(df_firmi_actino_k4)
 
 #Build KNN Classifier 
 #k=3 chosen to obtain fast computation, reduce variance from noise, and ideally balance the risks of underfitting and overfitting. An odd number was selected because this is a binary classifier. It is expect that this may need to be increased, because while there isn't a single k-value that is optimal across all data sets, k=sqrt(number of data points) in a reported rule of thumb (Singh et al., 2017).
-knn_prediction1<-knn(train=dfTraining_k4[,5:260],test=dfvalidation_k4[,5:260],cl=dfTraining$Phylum,k=3)
+knn_prediction1<-knn(train=dfTraining_k4[,5:260],test=dfvalidation_k4[,5:260],cl=dfTraining_k4$Phylum,k=3)
 
 #Create and view confusion matrix for KNN
 knn_confusion_matrix<-confusionMatrix(table(knn_prediction1,dfvalidation_k4$Phylum))
@@ -482,7 +509,7 @@ knn_prediction<-knn(train=knn_training,test=knn_validation,cl=knn.trainlabels,k=
 ##Evaluate the KNN Classifier
 
 #Inspect the results of knn classifier
-knn_prediction
+head(knn_prediction)
 
 #Put knn.validationlabels into a dataframe
 df.knn.validationlabels<-data.frame(knn.validationlabels)
@@ -494,7 +521,7 @@ knn.pred.val<-data.frame(knn_prediction,knn.validationlabels)
 names(knn.pred.val)<-c("Predicted Phylum","Observed Phylum")
 
 #Inspect merge
-knn.pred.val
+head(knn.pred.val)
 
 #Further evaluate KNN performance
 
