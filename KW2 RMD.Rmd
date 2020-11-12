@@ -6,7 +6,7 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, tidy= TRUE)
 ```
 ####Install & Load Packages----
 
@@ -64,13 +64,8 @@ firmi_max <- firmi_search$count
 ```{r Fetch}
 #Fetch Sequence data in FASTA format for respective taxa. Retmax specified since web-history object is being used. 
 actino_fetch <- entrez_fetch(db = "nuccore", web_history=actino_search$web_history, rettype = "fasta", retmax=4000)
-show("take a break" )
+Sys.sleep(5)
 firmi_fetch <- entrez_fetch(db = "nuccore", web_history=firmi_search$web_history, rettype = "fasta", retmax=4000)
-
-#Use these lines to access max records for each data set
-#actino_fetch <- entrez_fetch(db = "nuccore", web_history=actino_search$web_history, rettype = "fasta", retmax=actino_max)
-#firmi_fetch <- entrez_fetch(db = "nuccore", web_history=firmi_search$web_history, rettype = "fasta", retmax=firmi_max)
-
 
 #Write sequence data to directory. FASTA files subsequently viewed with text editor. The following lines have been commented to prevent overwriting.
 write(actino_fetch, "actino_fetch.fasta", sep = "\n")
@@ -128,9 +123,11 @@ summary(df_firmi_actino)
 summary(nchar(df_firmi_actino$Sequence_16S))
 ggplot(df_firmi_actino,aes(x=nchar(Sequence_16S), y = Phylum, xmin = 0,
               xmax = max(nchar(Sequence_16S)), colour = Phylum)) +
-  geom_pointrange(show.legend = F) +
+  geom_jitter(show.legend = F) +
+  geom_boxplot(outlier.shape = NA, colour="black", show.legend = F, fill = NA) +
   xlab("Sequence Length")
-#1000 appears to be a good cut off for minimum of sequence, no outliers to the right so wont specify a maximum 
+       
+#Based off of this plot will choose a minimual length of 1000 to filter over 
 counts <- df_firmi_actino %>%
             group_by(Phylum) %>%
             count(nchar(Sequence_16S) >=1000)
@@ -191,13 +188,15 @@ dfTraining_k4 %>%
 
 
 #Build a classifier to classify phylum by 4-mer frequency and assess the importance of predictors
+#Start with ntree=500 using the assumption a tree count equal to double the number of features should be enough trees for that dataset
+TreeCount <- 500
+phylum_classifier_k4 <- randomForest(x = dfTraining_k4[, 5:260], y = as.factor(dfTraining_k4$Phylum), ntree = TreeCount, importance = TRUE)
 
-phylum_classifier_k4 <- randomForest(x = dfTraining_k4[, 5:260], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
-
-ggplot(as.data.frame(phylum_classifier_k4$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+#Testing the assumption enough trees were used in the calculation. 
+ggplot(as.data.frame(phylum_classifier_k4$err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
-
+#It can bee seen the error rate has stopped rapidly decreasing indicating adding more trees will not change the analysis in a meaningful way. 
 #Explanations for the most relevant model choices:
 #n-tree set to be twice the size of the number of data points in the training set (4000) to enable so data points to make it into the model more than once; a higher ntree is not initially selected due to the greater computational power required, but it is understood that this can be revisited if model performance need to be improved.
 #x=dfTraining[,5:260] because we're using the columns containing k-mer data as features to train our model
@@ -282,37 +281,49 @@ ggplot(df_importance_k4_50, aes(y = reorder(feature, MeanDecreaseGini),
 
 
 ###Create RF Model based only on the top 4 most important features (as defined MeanDecreaseGini)
-phylum_classifier_top_features_k4 <- randomForest(x = dfTraining_k4[, c("GGCC","ACCA","TTAG","TTTA")], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
-#Test that enough trees were made
-ggplot(as.data.frame(phylum_classifier_top_features_k4$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+TreeCount <- 500
+phylum_classifier_top_features_k4 <- randomForest(x = dfTraining_k4[, c("GGCC","ACCA","TTAG","TTTA")], y = as.factor(dfTraining_k4$Phylum), ntree = TreeCount, importance = TRUE)
+
+ggplot(as.data.frame(phylum_classifier_top_features_k4$err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
-#Overview of Classifier (Top 4 features): OOB estimate of error rate is 1.38%
+#Based off the shape of the plot, going to try again increasing the number of trees used
+TreeCount <- 700
+phylum_classifier_top_features_k4 <- randomForest(x = dfTraining_k4[, c("GGCC","ACCA","TTAG","TTTA")], y = as.factor(dfTraining_k4$Phylum), ntree = TreeCount, importance = TRUE)
+
+#Test that enough trees were made
+ggplot(as.data.frame(phylum_classifier_top_features_k4$err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
+
+#Using 700 trees produces a mroe stable decrease to the error rate so will use that going forward
+
+#Overview of Classifier (Top 4 features):
 phylum_classifier_top_features_k4
 
-
 ###Create RF model based only on the most important feature (as defined by MeanDecreaseGini): GGCC
-phylum_classifier_GGCC<- randomForest(x = dfTraining_k4[, "GGCC"], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
+TreeCount <- 500
+phylum_classifier_GGCC<- randomForest(x = dfTraining_k4[, "GGCC"], y = as.factor(dfTraining_k4$Phylum), ntree = TreeCount, importance = TRUE)
 
 #Test that enough trees were made
-ggplot(as.data.frame(phylum_classifier_GGCC$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+ggplot(as.data.frame(phylum_classifier_GGCC$err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
-#Overview of Classifier(single feature: GGCC): OOB estimate of error rate is 5.95%
+#Overview of Classifier(single feature: GGCC): 
 phylum_classifier_GGCC
 ```
 ```{r Model}
 ###Create RF model based only on the least important feature (as defined by MeanDecreaseGini): CTAC
-phylum_classifier_CTAC<- randomForest(x = dfTraining_k4[, "CTAC"], y = as.factor(dfTraining_k4$Phylum), ntree = 600, importance = TRUE)
+TreeCount <- 500
+phylum_classifier_CTAC<- randomForest(x = dfTraining_k4[, "CTAC"], y = as.factor(dfTraining_k4$Phylum), ntree = TreeCount, importance = TRUE)
 
-#Test that enough trees were made
-ggplot(as.data.frame(phylum_classifier_CTAC$err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+ggplot(as.data.frame(phylum_classifier_CTAC$err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
-#Overview of Classifier(single feature: CTAC): OOB estimate of error rate is 18.92%
+#Overview of Classifier(single feature: CTAC): 
 phylum_classifier_CTAC
 ```
 
@@ -340,10 +351,10 @@ dfTraining_k3 <- df_firmi_actino_k3%>%
 
 #Build RF Classifier for 3-mers
 #Again choose ntree properly
-phylum_classifier_k3 <- randomForest(x = dfTraining_k3[, 5:68], y = as.factor(dfTraining_k3$Phylum), ntree = 600, importance = TRUE)
+TreeCount <- 200
+phylum_classifier_k3 <- randomForest(x = dfTraining_k3[, 5:68], y = as.factor(dfTraining_k3$Phylum), ntree = TreeCount, importance = TRUE)
 
-#Test that enough trees were made
-ggplot(as.data.frame(phylum_classifier_k3 $err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+ggplot(as.data.frame(phylum_classifier_k3 $err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
 
@@ -388,13 +399,23 @@ dfTraining_k2 <- df_firmi_actino_k2%>%
   sample_n(2000) #why?
 
 #Build RF Classifier for 2-mers
-#Work out ntree properly
-phylum_classifier_k2 <- randomForest(x = dfTraining_k2[, 5:20], y = as.factor(dfTraining_k2$Phylum), ntree = 600, importance = TRUE)
 
-#Test that enough trees were made
-ggplot(as.data.frame(phylum_classifier_k2 $err.rate), aes(x= 1:600, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+TreeCount = 100
+phylum_classifier_k2 <- randomForest(x = dfTraining_k2[, 5:20], y = as.factor(dfTraining_k2$Phylum), ntree = TreeCount, importance = TRUE)
+
+ggplot(as.data.frame(phylum_classifier_k2 $err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
   theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
         axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
+
+#Could look better. Going to increase the tree count.
+TreeCount = 500
+phylum_classifier_k2 <- randomForest(x = dfTraining_k2[, 5:20], y = as.factor(dfTraining_k2$Phylum), ntree = TreeCount, importance = TRUE)
+
+ggplot(as.data.frame(phylum_classifier_k2 $err.rate), aes(x= 1:TreeCount, y = OOB)) +geom_point(size = 0.5, shape = 1) + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black")) + labs(x="Number of trees", y = "Error rate") 
+
+#Staisifed with these error rates
 
 #See overview of classifier for training set: 0.9% OOB error estimate
 phylum_classifier_k2
