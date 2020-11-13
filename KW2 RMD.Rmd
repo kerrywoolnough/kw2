@@ -26,18 +26,16 @@ library(randomForest)
 #install.packages("caret")
 library(caret)
 #install.packages("rpart")
-library("rpart")
+library(rpart)
 #install.packages("rpart.plot")
-library("rpart.plot")
+library(rpart.plot)
 #install.packages("rattle")
-library("rattle")
+library(rattle)
 #install.packages("class")
-library("class")
+library(class)
 #install.packages("gmodels")
 library(gmodels)
-## May not need, try without to see
-#install.packages('ggridges')
-#library(ggridges)
+
 ```
 
 
