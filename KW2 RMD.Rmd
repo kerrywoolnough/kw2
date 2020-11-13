@@ -2,7 +2,9 @@
 title: "KW2 RMD"
 author: "Kerry Woolnough"
 date: "04/11/2020"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
